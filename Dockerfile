@@ -25,12 +25,12 @@ RUN npm run build
 FROM ubuntu:22.04
 
 # Runtime deps
-RUN apt-get update && apt-get install -y \
-    curl python3 python3-pip nodejs npm ffmpeg \
+RUN apt-get update && apt-get install -y curl python3 python3-pip ffmpeg ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && pip3 install yt-dlp \
     && rm -rf /var/lib/apt/lists/*
 
-# llama.cpp server binary + shared libs
 # llama.cpp server binary
 COPY --from=llama-builder /llama.cpp/build/bin/llama-server /usr/local/bin/llama-server
 
