@@ -31,9 +31,13 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # llama.cpp server binary + shared libs
+# llama.cpp server binary
 COPY --from=llama-builder /llama.cpp/build/bin/llama-server /usr/local/bin/llama-server
-COPY --from=llama-builder /llama.cpp/build/src/*.so* /usr/local/lib/ 2>/dev/null || true
-COPY --from=llama-builder /llama.cpp/build/ggml/src/*.so* /usr/local/lib/ 2>/dev/null || true
+
+# Copy all shared libs in one go using a shell command instead of COPY glob
+RUN --mount=from=llama-builder,source=/llama.cpp/build,target=/llama-build \
+    find /llama-build -name "*.so*" -exec cp {} /usr/local/lib/ \; 2>/dev/null || true
+
 RUN ldconfig
 
 # Backend
