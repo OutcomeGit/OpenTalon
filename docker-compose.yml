@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  opentalon:
+    image: ghcr.io/yourusername/opentalon:latest
+    container_name: opentalon
+    ports:
+      - "8765:8765"   # OpenTalon UI
+      - "8080:8080"   # llama.cpp API (optional, for external access)
+    volumes:
+      - opentalon-data:/data
+    environment:
+      - PORT=8765
+      - LLAMA_PORT=8080
+      - DATA_DIR=/data
+      - WORKSPACE_DIR=/data/workspace
+      - QUARANTINE_DIR=/data/quarantine
+      - MODELS_DIR=/data/models
+      - NODE_ENV=production
+    restart: unless-stopped
+
+volumes:
+  opentalon-data:
+    driver: local
