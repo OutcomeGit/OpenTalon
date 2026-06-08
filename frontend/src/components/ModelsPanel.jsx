@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Search, Download, Trash2, HardDrive, RefreshCw, X,
+  Search, Download, Trash2, HardDrive, RefreshCw,
   ChevronDown, ChevronRight, ExternalLink, Brain,
   CheckCircle, AlertCircle, Loader, StopCircle, Play,
-  Terminal, Zap, Circle
+  Terminal, Zap, Circle, X, ArrowRight
 } from 'lucide-react';
 import { api } from '../hooks/useApi';
+import { useStore } from '../store';
 
 function formatBytes(bytes) {
   if (!bytes) return '?';
@@ -16,7 +17,7 @@ function formatBytes(bytes) {
 const QUANT_INFO = {
   'Q2_K':   { quality: 1, note: 'Tiny, lowest quality' },
   'Q3_K_S': { quality: 2, note: 'Very small' },
-  'Q3_K_M': { quality: 2, note: 'Small' },
+  'Q3_K_M': { quality: 3, note: 'Small' },
   'Q3_K_L': { quality: 3, note: 'Small, slightly better' },
   'Q4_0':   { quality: 3, note: 'Legacy 4-bit' },
   'Q4_K_S': { quality: 4, note: 'Good balance, smaller' },
@@ -30,91 +31,6 @@ const QUANT_INFO = {
   'F32':    { quality: 11, note: 'Full precision, huge' },
 };
 
-// ─── llama.cpp status bar ─────────────────────────────────────────────────────
-function LlamaStatusBar({ status, onStop, onShowLogs }) {
-  const colors = {
-    stopped:  'bg-surface-3 border-border text-muted',
-    starting: 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400',
-    running:  'bg-green-500/10 border-green-500/30 text-green-400',
-    error:    'bg-red-500/10 border-red-500/30 text-red-400',
-  };
-  const dots = {
-    stopped:  <Circle size={8} className="text-muted fill-muted" />,
-    starting: <Loader size={10} className="animate-spin text-yellow-400" />,
-    running:  <Circle size={8} className="text-green-400 fill-green-400 animate-pulse" />,
-    error:    <Circle size={8} className="text-red-400 fill-red-400" />,
-  };
-
-  return (
-    <div className={`mx-6 mt-4 mb-2 flex items-center gap-3 px-4 py-2.5 rounded-xl border ${colors[status.status] || colors.stopped}`}>
-      {dots[status.status] || dots.stopped}
-      <div className="flex-1 min-w-0">
-        <span className="text-xs font-semibold">llama.cpp </span>
-        <span className="text-xs opacity-70">{status.status}</span>
-        {status.model && status.status === 'running' && (
-          <span className="text-xs opacity-60"> · {status.model}</span>
-        )}
-        {status.error && <span className="text-xs text-red-400 ml-2">{status.error}</span>}
-      </div>
-      <button onClick={onShowLogs} className="text-[10px] opacity-60 hover:opacity-100 transition-opacity flex items-center gap-1">
-        <Terminal size={10} /> Logs
-      </button>
-      {status.status === 'running' && (
-        <button onClick={onStop} className="text-[10px] flex items-center gap-1 px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 transition-colors">
-          <StopCircle size={10} /> Stop
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ─── Live log viewer modal ────────────────────────────────────────────────────
-function LogViewer({ onClose }) {
-  const [logs, setLogs] = useState([]);
-  const bottomRef = useRef(null);
-
-  useEffect(() => {
-    const es = new EventSource('/api/llama/logs');
-    es.onmessage = (e) => {
-      try {
-        const entry = JSON.parse(e.data);
-        setLogs(prev => [...prev.slice(-300), entry]);
-      } catch {}
-    };
-    return () => es.close();
-  }, []);
-
-  useEffect(() => { bottomRef.current?.scrollIntoView(); }, [logs]);
-
-  return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface-1 border border-border rounded-2xl w-full max-w-3xl h-[70vh] flex flex-col animate-slide-in">
-        <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2">
-            <Terminal size={14} className="text-accent" />
-            <span className="text-sm font-semibold">llama.cpp Logs</span>
-          </div>
-          <button onClick={onClose} className="text-muted hover:text-text">×</button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-4 font-mono text-xs bg-surface-0 rounded-b-2xl">
-          {logs.length === 0 ? (
-            <div className="text-muted">Waiting for logs…</div>
-          ) : (
-            logs.map((l, i) => (
-              <div key={i} className="flex gap-3 leading-5">
-                <span className="text-muted shrink-0">{l.ts?.slice(11, 19)}</span>
-                <span className="text-green-300 break-all">{l.text}</span>
-              </div>
-            ))
-          )}
-          <div ref={bottomRef} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Quant quality bar ────────────────────────────────────────────────────────
 function QualityBar({ quant }) {
   const q = QUANT_INFO[quant];
   if (!q) return null;
@@ -126,6 +42,101 @@ function QualityBar({ quant }) {
         <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
       </div>
       <span className="text-[10px] text-muted">{q.note}</span>
+    </div>
+  );
+}
+
+// ─── llama status bar ─────────────────────────────────────────────────────────
+function LlamaStatusBar({ status, onStop, onShowLogs }) {
+  const colors = {
+    stopped:  'bg-surface-3 border-border text-muted',
+    starting: 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400',
+    running:  'bg-green-500/10 border-green-500/30 text-green-400',
+    error:    'bg-red-500/10 border-red-500/30 text-red-400',
+  };
+  const dot = {
+    stopped:  <Circle size={8} className="text-muted fill-muted shrink-0" />,
+    starting: <Loader size={10} className="animate-spin text-yellow-400 shrink-0" />,
+    running:  <Circle size={8} className="text-green-400 fill-green-400 animate-pulse shrink-0" />,
+    error:    <Circle size={8} className="text-red-400 fill-red-400 shrink-0" />,
+  };
+
+  return (
+    <div className={`mx-6 mt-4 mb-1 flex items-center gap-3 px-4 py-2.5 rounded-xl border ${colors[status.status] || colors.stopped}`}>
+      {dot[status.status] || dot.stopped}
+      <div className="flex-1 min-w-0">
+        <span className="text-xs font-semibold">llama.cpp </span>
+        <span className="text-xs opacity-70">{status.status}</span>
+        {status.model && status.status === 'running' && (
+          <span className="text-xs opacity-60"> · {status.model}</span>
+        )}
+        {status.error && <span className="text-xs text-red-400 ml-2">{status.error}</span>}
+      </div>
+      <button onClick={onShowLogs} className="text-[10px] opacity-60 hover:opacity-100 transition-opacity flex items-center gap-1 shrink-0">
+        <Terminal size={10} /> Logs
+      </button>
+      {(status.status === 'running' || status.status === 'starting') && (
+        <button onClick={onStop} className="text-[10px] flex items-center gap-1 px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 transition-colors shrink-0">
+          <StopCircle size={10} /> Stop
+        </button>
+      )}
+      {status.status === 'stopped' && (
+        <span className="text-[10px] opacity-50 shrink-0">Go to Local tab to load a model</span>
+      )}
+    </div>
+  );
+}
+
+// ─── Log viewer ───────────────────────────────────────────────────────────────
+function LogViewer({ onClose }) {
+  const [logs, setLogs] = useState([]);
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    const es = new EventSource('/api/llama/logs');
+    es.onmessage = (e) => {
+      try { setLogs(prev => [...prev.slice(-300), JSON.parse(e.data)]); } catch {}
+    };
+    return () => es.close();
+  }, []);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView(); }, [logs]);
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+      <div className="bg-surface-1 border border-border rounded-2xl w-full max-w-3xl h-[70vh] flex flex-col animate-slide-in">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2"><Terminal size={14} className="text-accent" /><span className="text-sm font-semibold">llama.cpp Logs</span></div>
+          <button onClick={onClose} className="text-muted hover:text-text text-lg">×</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 font-mono text-xs bg-surface-0 rounded-b-2xl">
+          {logs.length === 0 ? <div className="text-muted">Waiting for logs…</div> : logs.map((l, i) => (
+            <div key={i} className="flex gap-3 leading-5">
+              <span className="text-muted shrink-0">{l.ts?.slice(11, 19)}</span>
+              <span className="text-green-300 break-all">{l.text}</span>
+            </div>
+          ))}
+          <div ref={bottomRef} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Download complete toast ──────────────────────────────────────────────────
+function DownloadCompleteToast({ name, onLoad, onDismiss }) {
+  return (
+    <div className="mx-6 mt-2 flex items-center gap-3 px-4 py-3 rounded-xl border border-green-500/30 bg-green-500/10 animate-slide-in">
+      <CheckCircle size={14} className="text-green-400 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-semibold text-green-300">Download complete</div>
+        <div className="text-[10px] text-green-400/70 truncate">{name}</div>
+      </div>
+      <button onClick={onLoad}
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-accent text-black text-xs font-bold rounded-lg hover:bg-claw-400 transition-colors shrink-0">
+        <Zap size={11} /> Load Now
+      </button>
+      <button onClick={onDismiss} className="text-muted hover:text-text shrink-0"><X size={13} /></button>
     </div>
   );
 }
@@ -162,12 +173,12 @@ function DownloadCard({ dl, onCancel }) {
         </div>
       )}
       {isError && <p className="text-[10px] text-red-400 mt-1">{dl.error}</p>}
-      {isDone && <p className="text-[10px] text-green-400 mt-1">Saved to /data/models — click Load to run it</p>}
+      {isDone && <p className="text-[10px] text-green-400 mt-1">Go to Local tab to load</p>}
     </div>
   );
 }
 
-// ─── Model file row (quant picker) ────────────────────────────────────────────
+// ─── Model file row ───────────────────────────────────────────────────────────
 function ModelFileRow({ file, onDownload, localNames, downloading }) {
   const isLocal = localNames.has(file.filename);
   const isDownloading = downloading.has(file.filename);
@@ -189,7 +200,7 @@ function ModelFileRow({ file, onDownload, localNames, downloading }) {
             <CheckCircle size={10} /> Local
           </span>
         ) : isDownloading ? (
-          <span className="flex items-center gap-1 text-[10px] text-accent font-mono px-2 py-1">
+          <span className="flex items-center gap-1 text-[10px] text-accent px-2 py-1">
             <Loader size={10} className="animate-spin" /> DL…
           </span>
         ) : (
@@ -203,18 +214,18 @@ function ModelFileRow({ file, onDownload, localNames, downloading }) {
   );
 }
 
-// ─── HuggingFace search result card ──────────────────────────────────────────
+// ─── HuggingFace result card ──────────────────────────────────────────────────
 function SearchResultCard({ model, expanded, onExpand, onDownload, localNames, downloading }) {
   const [files, setFiles] = useState(null);
-  const [loadingFiles, setLoadingFiles] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   async function expand() {
     onExpand(model.id);
     if (!files) {
-      setLoadingFiles(true);
+      setLoading(true);
       try { setFiles((await api.getModelFiles(model.id)).files || []); }
       catch { setFiles([]); }
-      setLoadingFiles(false);
+      setLoading(false);
     }
   }
 
@@ -246,7 +257,7 @@ function SearchResultCard({ model, expanded, onExpand, onDownload, localNames, d
       </button>
       {expanded && (
         <div className="border-t border-border px-4 pb-4 pt-3 bg-surface-1">
-          {loadingFiles ? (
+          {loading ? (
             <div className="flex items-center gap-2 text-xs text-muted py-3"><Loader size={12} className="animate-spin" /> Loading…</div>
           ) : !files?.length ? (
             <div className="text-xs text-muted py-3">No GGUF files found.</div>
@@ -254,8 +265,7 @@ function SearchResultCard({ model, expanded, onExpand, onDownload, localNames, d
             <div className="space-y-1">
               <div className="text-[10px] text-muted uppercase tracking-wider mb-2 font-semibold">Available Quantizations</div>
               {files.map(f => (
-                <ModelFileRow key={f.filename} file={f} onDownload={onDownload}
-                  localNames={localNames} downloading={downloading} />
+                <ModelFileRow key={f.filename} file={f} onDownload={onDownload} localNames={localNames} downloading={downloading} />
               ))}
             </div>
           )}
@@ -267,6 +277,7 @@ function SearchResultCard({ model, expanded, onExpand, onDownload, localNames, d
 
 // ─── Main panel ───────────────────────────────────────────────────────────────
 export default function ModelsPanel() {
+  const { setActivePanel } = useStore();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -277,20 +288,30 @@ export default function ModelsPanel() {
   const [tab, setTab] = useState('search');
   const [llamaStatus, setLlamaStatus] = useState({ status: 'stopped' });
   const [showLogs, setShowLogs] = useState(false);
+  const [justDownloaded, setJustDownloaded] = useState(null);
   const pollRef = useRef(null);
+  const prevDownloads = useRef([]);
 
   const localNames = new Set(localModels.map(m => m.name));
 
   async function refresh() {
-    const [models, dls, status] = await Promise.all([
-      api.getLocalModels(),
-      api.getActiveDownloads(),
-      api.getLlamaStatus(),
-    ]);
-    setLocalModels(models);
-    setDownloads(dls);
-    setLlamaStatus(status);
-    setDownloadingFiles(new Set(dls.filter(d => d.status === 'downloading').map(d => d.name)));
+    try {
+      const [models, dls, status] = await Promise.all([
+        api.getLocalModels(),
+        api.getActiveDownloads(),
+        api.getLlamaStatus(),
+      ]);
+      setLocalModels(models);
+      setDownloads(dls);
+      setLlamaStatus(status);
+      setDownloadingFiles(new Set(dls.filter(d => d.status === 'downloading').map(d => d.name)));
+
+      // Detect newly completed downloads
+      const prev = prevDownloads.current;
+      const newlyDone = dls.find(d => d.status === 'done' && !prev.find(p => p.id === d.id && p.status === 'done'));
+      if (newlyDone) setJustDownloaded(newlyDone);
+      prevDownloads.current = dls;
+    } catch {}
   }
 
   useEffect(() => {
@@ -315,8 +336,7 @@ export default function ModelsPanel() {
   }
 
   async function handleLoad(model) {
-    const MODELS_DIR = '/data/models';
-    await api.startLlama(`${MODELS_DIR}/${model.name}`);
+    await api.startLlama(`/data/models/${model.name}`);
     setLlamaStatus({ status: 'starting', model: model.name });
   }
 
@@ -325,13 +345,8 @@ export default function ModelsPanel() {
     refresh();
   }
 
-  async function handleDelete(name) {
-    if (!confirm(`Delete ${name}?`)) return;
-    await api.deleteLocalModel(name);
-    refresh();
-  }
-
   const activeCount = downloads.filter(d => d.status === 'downloading').length;
+  const isLoaded = llamaStatus.status === 'running';
 
   return (
     <div className="h-full flex flex-col">
@@ -346,8 +361,21 @@ export default function ModelsPanel() {
         </button>
       </div>
 
-      {/* llama.cpp status bar */}
+      {/* llama status */}
       <LlamaStatusBar status={llamaStatus} onStop={handleStop} onShowLogs={() => setShowLogs(true)} />
+
+      {/* Download complete toast */}
+      {justDownloaded && (
+        <DownloadCompleteToast
+          name={justDownloaded.name}
+          onLoad={() => {
+            handleLoad({ name: justDownloaded.name });
+            setJustDownloaded(null);
+            setTab('local');
+          }}
+          onDismiss={() => setJustDownloaded(null)}
+        />
+      )}
 
       {/* Tabs */}
       <div className="px-6 py-2 border-b border-border bg-surface-1 flex gap-1 shrink-0">
@@ -357,7 +385,8 @@ export default function ModelsPanel() {
         </button>
         <button onClick={() => setTab('local')}
           className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${tab === 'local' ? 'bg-accent/15 text-accent' : 'text-muted hover:text-text hover:bg-surface-3'}`}>
-          <HardDrive size={11} /> Local <span className="font-mono">{localModels.length}</span>
+          <HardDrive size={11} /> Local
+          <span className={`font-mono ${localModels.length > 0 ? 'text-accent' : ''}`}>{localModels.length}</span>
         </button>
         <button onClick={() => setTab('downloads')}
           className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${tab === 'downloads' ? 'bg-accent/15 text-accent' : 'text-muted hover:text-text hover:bg-surface-3'}`}>
@@ -366,7 +395,7 @@ export default function ModelsPanel() {
         </button>
       </div>
 
-      {/* Search */}
+      {/* Search tab */}
       {tab === 'search' && (
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="px-6 py-3 border-b border-border shrink-0">
@@ -375,11 +404,11 @@ export default function ModelsPanel() {
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
                 <input value={query} onChange={e => setQuery(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && doSearch(query)}
-                  placeholder="Search HuggingFace for GGUF models…"
+                  placeholder="Search HuggingFace for GGUF models… (Enter)"
                   className="w-full bg-surface-2 border border-border rounded-lg pl-9 pr-4 py-2 text-sm text-text placeholder:text-muted focus:outline-none focus:border-accent/50" />
               </div>
               <button onClick={() => doSearch(query)} disabled={searching}
-                className="px-4 py-2 bg-accent text-black text-xs font-semibold rounded-lg hover:bg-claw-400 disabled:opacity-50 transition-colors flex items-center gap-2">
+                className="px-4 py-2 bg-accent text-black text-xs font-semibold rounded-lg hover:bg-claw-400 disabled:opacity-50 flex items-center gap-2">
                 {searching ? <Loader size={12} className="animate-spin" /> : <Search size={12} />} Search
               </button>
             </div>
@@ -400,44 +429,55 @@ export default function ModelsPanel() {
         </div>
       )}
 
-      {/* Local models */}
+      {/* Local models tab */}
       {tab === 'local' && (
         <div className="flex-1 overflow-y-auto p-6">
           {localModels.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full gap-3 text-muted text-sm">
-              <HardDrive size={24} />
-              <span>No models downloaded yet</span>
-              <button onClick={() => setTab('search')} className="text-accent text-xs hover:underline">Search HuggingFace</button>
+            <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
+              <HardDrive size={28} className="text-muted" />
+              <div>
+                <p className="text-sm font-semibold">No models downloaded yet</p>
+                <p className="text-xs text-muted mt-1">Search HuggingFace and download a GGUF model</p>
+              </div>
+              <button onClick={() => setTab('search')}
+                className="flex items-center gap-2 px-4 py-2 bg-accent text-black text-xs font-bold rounded-lg hover:bg-claw-400 transition-colors">
+                <Search size={12} /> Search Models <ArrowRight size={12} />
+              </button>
             </div>
           ) : (
-            <div className="space-y-2">
-              <p className="text-[10px] text-muted mb-3">Stored at /data/models — shared Docker volume with llama.cpp</p>
+            <div className="space-y-3">
+              {!isLoaded && (
+                <div className="flex items-center gap-2 px-4 py-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl text-xs text-yellow-300">
+                  <AlertCircle size={13} className="shrink-0" />
+                  No model loaded — click <strong className="mx-1">Load</strong> on a model below to start llama.cpp
+                </div>
+              )}
               {localModels.map(m => {
-                const isLoaded = llamaStatus.model === m.name && llamaStatus.status === 'running';
-                const isLoading = llamaStatus.model === m.name && llamaStatus.status === 'starting';
+                const isRunning = llamaStatus.model === m.name && llamaStatus.status === 'running';
+                const isStarting = llamaStatus.model === m.name && llamaStatus.status === 'starting';
                 return (
-                  <div key={m.path} className={`flex items-center gap-3 px-4 py-3 border rounded-xl transition-all group ${isLoaded ? 'border-green-500/30 bg-green-500/5' : 'border-border bg-surface-2 hover:border-accent/20'}`}>
-                    <Brain size={15} className={isLoaded ? 'text-green-400 shrink-0' : 'text-accent shrink-0'} />
+                  <div key={m.path} className={`flex items-center gap-3 px-4 py-3.5 border rounded-xl transition-all group ${isRunning ? 'border-green-500/40 bg-green-500/5' : 'border-border bg-surface-2 hover:border-accent/30'}`}>
+                    <Brain size={16} className={isRunning ? 'text-green-400 shrink-0' : 'text-accent shrink-0'} />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium truncate">{m.name}</div>
                       <div className="text-[10px] text-muted mt-0.5">{formatBytes(m.size)} · {new Date(m.modified).toLocaleDateString()}</div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      {isLoaded ? (
-                        <span className="flex items-center gap-1 text-[10px] text-green-400 font-semibold px-2 py-1 bg-green-400/10 rounded-lg">
-                          <Zap size={10} /> Running
+                      {isRunning ? (
+                        <span className="flex items-center gap-1.5 text-xs text-green-400 font-bold px-3 py-1.5 bg-green-400/10 rounded-lg border border-green-400/20">
+                          <Zap size={11} /> Running
                         </span>
-                      ) : isLoading ? (
-                        <span className="flex items-center gap-1 text-[10px] text-yellow-400 px-2 py-1">
-                          <Loader size={10} className="animate-spin" /> Starting…
+                      ) : isStarting ? (
+                        <span className="flex items-center gap-1.5 text-xs text-yellow-400 px-3 py-1.5">
+                          <Loader size={11} className="animate-spin" /> Starting…
                         </span>
                       ) : (
                         <button onClick={() => handleLoad(m)}
-                          className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 bg-accent/15 hover:bg-accent/25 border border-accent/30 text-accent rounded-lg font-semibold transition-colors">
-                          <Play size={10} /> Load
+                          className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-accent hover:bg-claw-400 text-black rounded-lg font-bold transition-colors">
+                          <Play size={11} /> Load
                         </button>
                       )}
-                      <button onClick={() => handleDelete(m.name)}
+                      <button onClick={async () => { if (!confirm(`Delete ${m.name}?`)) return; await api.deleteLocalModel(m.name); refresh(); }}
                         className="p-1.5 rounded opacity-0 group-hover:opacity-100 hover:bg-red-400/10 text-muted hover:text-red-400 transition-all">
                         <Trash2 size={13} />
                       </button>
@@ -450,7 +490,7 @@ export default function ModelsPanel() {
         </div>
       )}
 
-      {/* Downloads */}
+      {/* Downloads tab */}
       {tab === 'downloads' && (
         <div className="flex-1 overflow-y-auto p-6">
           {downloads.length === 0 ? (
